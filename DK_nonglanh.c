@@ -77,7 +77,15 @@ volatile uint16_t adc_sum[4]={0};
 volatile uint8_t adc_index = 0;
 volatile uint8_t adc_done = 0;
 #define ADC_SAMPLE_TIMES 5
+uint16_t adc_count=0;
 uint8_t adc_sample_count = 0;
+volatile uint8_t sys_10ms=0;
+uint8_t temp_input_N=0;
+uint8_t temp_count_N=0;
+uint8_t temp_input_L=0;
+uint8_t temp_count_L=0;
+uint8_t flag_enable_N=0;
+uint8_t flag_enable_L=0;
 const uint8_t adc_channels[4] = {
     ADC_INPUT_A0, // P1.0
     ADC_INPUT_A1, // P1.1
@@ -205,6 +213,7 @@ int main(void)
     GPIO_setAsOutputPin(GPIO_PORT_P2,GPIO_PIN2);
     GPIO_setAsInputPinWithPullUpResistor(GPIO_PORT_P2, GPIO_PIN0);
     GPIO_setAsInputPinWithPullUpResistor(GPIO_PORT_P2, GPIO_PIN1);
+
     //configure Timer
     Timer_A_initUpModeParam timerConfig = {
         .clockSource = TIMER_A_CLOCKSOURCE_SMCLK,
@@ -231,7 +240,33 @@ int main(void)
     {
 //        __delay_cycles(5000);
 //        ADC_startConversion(ADC_BASE,ADC_SINGLECHANNEL);
-        __bis_SR_register(CPUOFF + GIE);
+        __bis_SR_register(GIE);
+        if(temp_input_N!= GPIO_getInputPinValue(GPIO_PORT_P2, GPIO_PIN0) ){
+            temp_count_N++;
+            temp_input_N = GPIO_getInputPinValue(GPIO_PORT_P2, GPIO_PIN0);
+        }
+        if(temp_input_L!= GPIO_getInputPinValue(GPIO_PORT_P2, GPIO_PIN1) ){
+            temp_count_L++;
+            temp_input_L = GPIO_getInputPinValue(GPIO_PORT_P2, GPIO_PIN1);
+        }
+        if(sys_10ms > 50){
+            sys_10ms=0;
+            if(temp_count_N > 15){
+                flag_enable_N=1;
+            }
+            else{
+                flag_enable_N=0;
+            }
+            if(temp_count_L > 15){
+                flag_enable_L=1;
+            }
+            else{
+                flag_enable_L=0;
+            }
+            temp_count_L=0;
+            temp_count_N=0;
+
+        }
         if(adc_done){
             adc_done=0;
             val = P1IN;
@@ -259,7 +294,7 @@ int main(void)
                 if((temp_cold_ntc >= user_temp_cold + 20) && (temp_cold_ntc != INT32_MIN) )
                     cooler_on = 1;
             }
-            if(cooler_on && ( !GPIO_getInputPinValue(GPIO_PORT_P2, GPIO_PIN0)) ) {
+            if(cooler_on && flag_enable_L ) {
                 GPIO_setOutputHighOnPin(GPIO_PORT_P1, GPIO_PIN7);
                 GPIO_setOutputHighOnPin(GPIO_PORT_P2, GPIO_PIN2);
             }
@@ -276,7 +311,7 @@ int main(void)
                 if( (temp_hot_ntc <= user_temp_hot - 20) && (temp_hot_ntc != INT32_MIN) )
                     heater_on = 1;
             }
-            if(heater_on && ( !GPIO_getInputPinValue(GPIO_PORT_P2, GPIO_PIN1)) ) {
+            if(heater_on && flag_enable_N  ) {
                 GPIO_setOutputHighOnPin(GPIO_PORT_P1, GPIO_PIN5);
                 GPIO_setOutputHighOnPin(GPIO_PORT_P1, GPIO_PIN6);
             }
@@ -284,8 +319,9 @@ int main(void)
                 GPIO_setOutputLowOnPin(GPIO_PORT_P1, GPIO_PIN5);
                 GPIO_setOutputLowOnPin(GPIO_PORT_P1, GPIO_PIN6);
             }
-            __no_operation();
         }
+    __no_operation();
+
     }
 }
 
@@ -353,6 +389,11 @@ __attribute__((interrupt(TIMER0_A0_VECTOR)))
 #endif
 void TIMERA0_ISR (void)
 {
+    sys_10ms++;
+    adc_count++;
+    if(adc_count==1000){
+        adc_count=0;
+    }
     ADC_configureMemory(ADC_BASE, adc_channels[adc_index], ADC_VREFPOS_AVCC, ADC_VREFNEG_AVSS);
     ADC_startConversion(ADC_BASE,ADC_SINGLECHANNEL);
 }
